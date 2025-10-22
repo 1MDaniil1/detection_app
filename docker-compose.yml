@@ -10,6 +10,12 @@ services:
       - "5438:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mydatabase"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   redis:
     image: redis:7-alpine  
@@ -37,19 +43,29 @@ services:
     container_name: detection-backend
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app  # для reload кода(не нужно будет пересобирать весь контейнер)
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/mydatabase
       - REDIS_URL=redis://redis:6379/0
       - MINIO_ENDPOINT=http://minio:9000
-
+      - MINIO_ACCESS_KEY=admin           
+      - MINIO_SECRET_KEY=admin123        
+      - MINIO_BUCKET=images              
   celery-worker:
     build: 
       context: ./backend
       dockerfile: Dockerfile
     container_name: detection-celery-worker
+    volumes:
+      - ./backend:/app  # для reload кода
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/mydatabase
       - REDIS_URL=redis://redis:6379/0
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=admin           
+      - MINIO_SECRET_KEY=admin123        
+      - MINIO_BUCKET=images              
     command: celery -A celery_worker.celery worker --loglevel=info
 
   frontend:
@@ -59,8 +75,12 @@ services:
     container_name: detection-frontend
     ports:
       - "3000:3000"
+    volumes:
+      - ./frontend:/app # для reload кода
+      - /app/node_modules  
     environment:
       - REACT_APP_API_URL=http://localhost:8000
+      - CHOKIDAR_USEPOLLING=true    # для reload кода или еще чего-то(настройка над реактом)
 
 volumes:
   postgres-data:

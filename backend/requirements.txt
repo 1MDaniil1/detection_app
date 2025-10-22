@@ -2,15 +2,9 @@ fastapi
 uvicorn
 sqlalchemy
 psycopg2-binary
-pillow
-torch --index-url https://download.pytorch.org/whl/cpu
-torchvision --index-url https://download.pytorch.org/whl/cpu
-pycocotools
-numpy
-albumentations
 tqdm
-opencv-python
-scikit-learn
-torchmetrics
 requests
 boto3
+celery==5.3.4
+redis==5.0.1
+python-multipart==0.0.6

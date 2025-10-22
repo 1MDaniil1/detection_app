@@ -7,6 +7,7 @@ import albumentations as A
 import numpy as np
 from PIL import Image, ImageDraw
 import io
+import os
 
 # Inference transform (from notebook's eval_transform)
 inference_transform = Compose([
@@ -16,7 +17,9 @@ inference_transform = Compose([
 ])
 
 # Load the trained model (assume saved as 'vein_detector.pt' after running notebook)
-def load_model(model_path='./model/vein_detector.pt'):
+def load_model(model_path=None):
+    if model_path is None:
+        model_path = os.path.join(os.path.dirname(__file__), 'model', 'vein_detector_val_loss.pt')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=False)
@@ -45,10 +48,9 @@ def detect_objects(image_bytes, score_threshold=SCORE_THRESHOLD):
     # Apply transform (resize + norm + tensor), no bboxes for inference
     transformed = inference_transform(image=orig_np)
     image_tensor = transformed['image'].unsqueeze(0).to(device)  # Add batch dim
-
+    
     with torch.no_grad():
         preds = model(image_tensor)[0]  # Predictions
-
     # Filter by score
     keep = preds['scores'] > score_threshold
     boxes = preds['boxes'][keep].cpu().numpy()  # xyxy format
