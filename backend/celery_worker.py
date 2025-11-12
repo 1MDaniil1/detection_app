@@ -8,6 +8,9 @@ import os
 import uuid
 import boto3
 from botocore.exceptions import NoCredentialsError
+import redis
+import json
+
 
 # Celery configuration
 celery = Celery(
@@ -58,36 +61,51 @@ def upload_to_minio_sync(file_content: bytes, filename: str, content_type: str) 
             ContentType=content_type
         )
         
-        # Публичный URL для фронтенда
+        # Простой URL для MinIO (без ACL)
         return f"http://localhost:9000/{bucket_name}/{unique_filename}"
         
     except Exception as e:
         raise Exception(f"MinIO upload failed: {str(e)}")
+    
+redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
 
-@celery.task(bind=True, name='tasks.process_detection')
+@celery.task(bind=True)
 def process_detection_task(self, image_data: bytes, filename: str, content_type: str):
-    """Celery task для обработки детекции в фоне"""
+    task_id = self.request.id
+    print(f"🎯 CELERY TASK STARTED: {task_id}")
+    print(f"📧 Filename: {filename}")
+    print(f"📦 Image data size: {len(image_data)} bytes")
+    
     try:
-        self.update_state(state='PROGRESS', meta={'status': 'Starting detection...'})
+        # 1. Обновляем статус в Redis
+        import redis
+        redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
+        redis_client.setex(f"task:{task_id}:status", 3600, "Starting detection...")
+        print("✅ Redis status updated: Starting detection...")
         
-        # Выполняем детекцию
+        # 2. Пытаемся выполнить детекцию
+        print("🔍 Attempting to call detect_objects...")
         bboxes, processed_img = detect_objects(image_data)
+        print(f"✅ Detection completed, found {len(bboxes)} objects")
         
-        self.update_state(state='PROGRESS', meta={'status': 'Saving to storage...'})
+        # 3. Обновляем статус
+        redis_client.setex(f"task:{task_id}:status", 3600, "Saving results...")
+        print("✅ Redis status updated: Saving results...")
         
-        # Сохраняем обработанное изображение в bytes
+        # 4. Сохраняем обработанное изображение
+        print("💾 Saving processed image...")
         img_byte_arr = io.BytesIO()
         processed_img.save(img_byte_arr, format='PNG')
         img_byte_arr.seek(0)
         processed_image_data = img_byte_arr.getvalue()
         
-        # Загружаем оригинал и обработанное изображение в MinIO
+        # 5. Загружаем в MinIO
+        print("☁️ Uploading to MinIO...")
         original_url = upload_to_minio_sync(image_data, filename, content_type)
         processed_url = upload_to_minio_sync(processed_image_data, f"processed_{filename}", "image/png")
         
-        self.update_state(state='PROGRESS', meta={'status': 'Saving to database...'})
-        
-        # Сохраняем в базу данных
+        # 6. Сохраняем в базу
+        print("💾 Saving to database...")
         db = SessionLocal()
         try:
             detection = Detection(
@@ -108,19 +126,35 @@ def process_detection_task(self, image_data: bytes, filename: str, content_type:
                 "veins_found": len(bboxes)
             }
             
+            # 7. Финальный статус
+            redis_client.setex(f"task:{task_id}:status", 3600, "completed")
+            redis_client.setex(f"task:{task_id}:result", 3600, json.dumps(result))
+            print(f"🎉 TASK COMPLETED SUCCESSFULLY: {task_id}")
+            
             return result
             
         except Exception as e:
             db.rollback()
+            print(f"❌ Database error: {str(e)}")
             raise e
         finally:
             db.close()
             
     except Exception as e:
+        print(f"❌ CELERY TASK FAILED: {task_id}")
+        print(f"❌ Error: {str(e)}")
+        import traceback
+        traceback.print_exc()  # Это покажет полный стек вызовов
+        
+        # Обновляем статус ошибки
+        try:
+            redis_client.setex(f"task:{task_id}:status", 3600, "failed")
+            redis_client.setex(f"task:{task_id}:error", 3600, str(e))
+            print("✅ Error status saved to Redis")
+        except:
+            print("❌ Failed to save error status to Redis")
+        
         return {
             "status": "error",
             "error": str(e)
         }
-
-# Запускаем при импорте для предзагрузки модели
-print("Celery worker initialized with model pre-loaded")

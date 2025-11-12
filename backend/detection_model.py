@@ -9,7 +9,6 @@ from PIL import Image, ImageDraw
 import io
 import os
 
-# Inference transform (from notebook's eval_transform)
 inference_transform = Compose([
     A.Resize(height=1400, width=3600),
     A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
@@ -17,9 +16,8 @@ inference_transform = Compose([
 ])
 
 # Load the trained model (assume saved as 'vein_detector.pt' after running notebook)
-def load_model(model_path=None):
-    if model_path is None:
-        model_path = os.path.join(os.path.dirname(__file__), 'model', 'vein_detector_val_loss.pt')
+def load_model(model_path="./model/vein_detector_val_loss.pt"):
+    print(f'model path:{model_path}')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=False)
@@ -31,26 +29,34 @@ def load_model(model_path=None):
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
     model.eval()
-    
+    print('model loaded')
     return model, device
 
-# Инициализируем модель и устройство
-model, device = load_model()
+def get_model():
+    """Ленивая загрузка модели"""
+    global model, device
+    if model is None:
+        print('🔄 Initializing model (first call)...')
+        model, device = load_model()
+    return model, device
+
+model = None
+device = None
 
 SCORE_THRESHOLD = 0.5
 
 def detect_objects(image_bytes, score_threshold=SCORE_THRESHOLD):
-    # Open original image
+    model, device = get_model()
+    print('detect_objects 1.0')
     orig_img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
     orig_np = np.array(orig_img)
     orig_h, orig_w = orig_np.shape[:2]  # Original dimensions
-
-    # Apply transform (resize + norm + tensor), no bboxes for inference
+    print('detect_objects 1')
     transformed = inference_transform(image=orig_np)
-    image_tensor = transformed['image'].unsqueeze(0).to(device)  # Add batch dim
-    
+    image_tensor = transformed['image'].unsqueeze(0).to(device)  
     with torch.no_grad():
         preds = model(image_tensor)[0]  # Predictions
+    print('detect_objects 2')
     # Filter by score
     keep = preds['scores'] > score_threshold
     boxes = preds['boxes'][keep].cpu().numpy()  # xyxy format
