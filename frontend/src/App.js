@@ -176,8 +176,8 @@ function App() {
     <div className="App">
       <div className="container">
         <header className="header">
-          <h1 className="title">Детекция вен</h1>
-          <p className="subtitle">Загрузите изображение для автоматического обнаружения вен</p>
+          <h1 className="title">Детекция прожилок</h1>
+          <p className="subtitle">Загрузите изображение для автоматического обнаружения прожилок</p>
         </header>
 
         {!loading && !resultImage && (

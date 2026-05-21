@@ -120,7 +120,7 @@ def process_detection_task(self, image_data: bytes, filename: str, content_type:
                 "bounding_boxes": bboxes,
                 "original_image_url": original_url,
                 "processed_image_url": processed_url,
-                "veins_found": len(bboxes),
+                "streaks_found": len(bboxes),
             }
 
             redis_client.setex(f"task:{task_id}:status", 3600, "completed")

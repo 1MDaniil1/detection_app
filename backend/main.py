@@ -11,7 +11,7 @@ from database import Detection, get_db
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Vein Detection API", version="1.0.0")
+app = FastAPI(title="Streak Detection API", version="1.0.0")
 
 celery_app = Celery(
     "api",
@@ -30,12 +30,12 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {"message": "Vein Detection API is running"}
+    return {"message": "Streak Detection API is running"}
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "vein-detection-api"}
+    return {"status": "healthy", "service": "streak-detection-api"}
 
 
 @app.post("/detect")
