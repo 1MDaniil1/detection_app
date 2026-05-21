@@ -96,7 +96,7 @@ def detect_objects(image_bytes, score_threshold=SCORE_THRESHOLD):
             "y": float(ymin),
             "w": float(xmax - xmin),
             "h": float(ymax - ymin),
-            "class": f"прожилка_{int(label)}",
+            "class": f"vein_{int(label)}",
             "confidence": float(score),
         })
 
