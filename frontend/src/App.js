@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import './App.css';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
 
 function App() {
   const [file, setFile] = useState(null);
@@ -11,68 +13,53 @@ function App() {
   const [taskId, setTaskId] = useState(null);
   const [currentStatus, setCurrentStatus] = useState('');
   const [selectedDetection, setSelectedDetection] = useState(null);
-  
+
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
 
-  // Отрисовка bounding boxes на canvas
-  useEffect(() => {
-    if (resultImage && detectionResult && detectionResult.length > 0) {
-      drawBoundingBoxes();
-    }
-  }, [resultImage, detectionResult]);
+  const getColorByConfidence = (confidence) => {
+    if (confidence > 0.9) return '#00a651';
+    if (confidence > 0.7) return '#d9a300';
+    return '#d93025';
+  };
 
-  const drawBoundingBoxes = () => {
+  useEffect(() => {
+    if (!resultImage || !detectionResult || detectionResult.length === 0) return;
+
     const canvas = canvasRef.current;
     const image = imageRef.current;
-    
     if (!canvas || !image) return;
 
-    const ctx = canvas.getContext('2d');
-    
-    // Ждем загрузки изображения
-    image.onload = () => {
-      // Устанавливаем размеры canvas как у изображения
-      canvas.width = image.width;
-      canvas.height = image.height;
-      
-      // Очищаем canvas
+    const draw = () => {
+      const ctx = canvas.getContext('2d');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Рисуем bounding boxes
+
       detectionResult.forEach((detection, index) => {
         const { x, y, w, h, class: className, confidence } = detection;
-        
-        // Цвет в зависимости от класса и уверенности
-        const color = getColorByConfidence(confidence);
-        const isSelected = selectedDetection === index;
-        
-        // Рисуем bounding box
-        ctx.strokeStyle = isSelected ? '#ff0000' : color;
-        ctx.lineWidth = isSelected ? 4 : 2;
+        const color = selectedDetection === index ? '#d93025' : getColorByConfidence(confidence);
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = selectedDetection === index ? 4 : 2;
         ctx.strokeRect(x, y, w, h);
-        
-        // Рисуем фон для текста
-        ctx.fillStyle = isSelected ? '#ff0000' : color;
-        ctx.fillRect(x, y - 20, 120, 20);
-        
-        // Текст с классом и уверенностью
-        ctx.fillStyle = 'white';
+
+        const label = `${className} ${(confidence * 100).toFixed(1)}%`;
         ctx.font = '12px Arial';
-        ctx.fillText(
-          `${className} ${(confidence * 100).toFixed(1)}%`, 
-          x + 5, 
-          y - 5
-        );
+        const labelWidth = Math.max(ctx.measureText(label).width + 10, 80);
+        ctx.fillStyle = color;
+        ctx.fillRect(x, Math.max(y - 22, 0), labelWidth, 20);
+        ctx.fillStyle = 'white';
+        ctx.fillText(label, x + 5, Math.max(y - 7, 15));
       });
     };
-  };
 
-  const getColorByConfidence = (confidence) => {
-    if (confidence > 0.9) return '#00ff00'; // Зеленый - высокая уверенность
-    if (confidence > 0.7) return '#ffff00'; // Желтый - средняя уверенность
-    return '#ff0000'; // Красный - низкая уверенность
-  };
+    if (image.complete && image.naturalWidth > 0) {
+      draw();
+    } else {
+      image.onload = draw;
+    }
+  }, [resultImage, detectionResult, selectedDetection]);
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];
@@ -87,9 +74,9 @@ function App() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    
+
     if (!file) {
-      setError('Пожалуйста, выберите файл');
+      setError('Выберите файл');
       return;
     }
 
@@ -103,7 +90,7 @@ function App() {
     formData.append('file', file);
 
     try {
-      const response = await axios.post('http://localhost:8000/detect', formData, {
+      const response = await axios.post(`${API_BASE_URL}/detect`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -112,18 +99,15 @@ function App() {
       const { task_id } = response.data;
       setTaskId(task_id);
       setCurrentStatus('Обработка начата...');
-
       startPolling(task_id);
-
-    } catch (error) {
-      console.error('❌ Ошибка при отправке файла:', error);
+    } catch (requestError) {
       setLoading(false);
       setCurrentStatus('');
-      setError(`Ошибка при отправке файла: ${error.response?.data?.detail || error.message}`);
+      setError(`Ошибка при отправке файла: ${requestError.response?.data?.detail || requestError.message}`);
     }
   };
 
-  const startPolling = (taskId) => {
+  const startPolling = (pollTaskId) => {
     let pollCount = 0;
     const maxPolls = 300;
 
@@ -134,45 +118,35 @@ function App() {
         return;
       }
 
-      pollCount++;
+      pollCount += 1;
 
       try {
-        const response = await axios.get(`http://localhost:8000/detect/status/${taskId}`);
-        console.log('📊 Ответ сервера:', response.data);
-
+        const response = await axios.get(`${API_BASE_URL}/detect/status/${pollTaskId}`);
         const { state, status, result } = response.data;
-
         setCurrentStatus(status || state || 'Обработка...');
 
         if (state === 'SUCCESS' || status === 'completed') {
-          console.log('✅ Задача завершена успешно!');
-          console.log('🎯 Результат:', result);
-          
           setLoading(false);
-          setCurrentStatus('Обработка завершена!');
-          
+          setCurrentStatus('Обработка завершена');
+
           if (result) {
             setResultImage(result.processed_image_url || result.image_url);
             setDetectionResult(result.bounding_boxes || result.detections || []);
           }
-          
         } else if (state === 'FAILURE' || status === 'failed') {
           setLoading(false);
           setCurrentStatus('Ошибка обработки');
           setError(result?.error || response.data?.error || 'Ошибка при обработке изображения');
-          
         } else {
           setTimeout(poll, 2000);
         }
-
-      } catch (error) {
-        console.error('💥 Ошибка при опросе статуса:', error);
+      } catch (pollError) {
         if (pollCount < 10) {
           setTimeout(poll, 2000);
         } else {
           setLoading(false);
           setCurrentStatus('');
-          setError(`Ошибка связи с сервером: ${error.message}`);
+          setError(`Ошибка связи с сервером: ${pollError.message}`);
         }
       }
     };
@@ -189,7 +163,7 @@ function App() {
     setTaskId(null);
     setCurrentStatus('');
     setSelectedDetection(null);
-    
+
     const fileInput = document.querySelector('input[type="file"]');
     if (fileInput) fileInput.value = '';
   };
@@ -202,7 +176,7 @@ function App() {
     <div className="App">
       <div className="container">
         <header className="header">
-          <h1 className="title">🔍 Детекция вен</h1>
+          <h1 className="title">Детекция вен</h1>
           <p className="subtitle">Загрузите изображение для автоматического обнаружения вен</p>
         </header>
 
@@ -211,7 +185,6 @@ function App() {
             <form onSubmit={handleSubmit} className="upload-form">
               <div className="file-upload">
                 <label htmlFor="file-input" className="file-label">
-                  <div className="upload-icon">📁</div>
                   <div className="upload-text">
                     {file ? file.name : 'Выберите изображение'}
                   </div>
@@ -226,12 +199,12 @@ function App() {
                   className="file-input"
                 />
               </div>
-              <button 
-                type="submit" 
-                disabled={loading || !file} 
+              <button
+                type="submit"
+                disabled={loading || !file}
                 className="submit-btn"
               >
-                {loading ? '⏳ Обработка...' : '🚀 Начать детекцию'}
+                {loading ? 'Обработка...' : 'Начать детекцию'}
               </button>
             </form>
           </div>
@@ -239,7 +212,6 @@ function App() {
 
         {error && (
           <div className="error-card">
-            <div className="error-icon">❌</div>
             <div className="error-content">
               <h3>Произошла ошибка</h3>
               <p>{error}</p>
@@ -252,13 +224,12 @@ function App() {
 
         {loading && (
           <div className="loading-card">
-            <div className="loading-spinner">⏳</div>
             <div className="loading-content">
               <h3>Обрабатываем изображение</h3>
               <p className="task-id">ID задачи: {taskId}</p>
               <p className="status">Статус: {currentStatus}</p>
               <div className="progress-text">
-                Это может занять несколько минут...
+                Это может занять несколько минут
               </div>
             </div>
           </div>
@@ -267,7 +238,7 @@ function App() {
         {resultImage && (
           <div className="results-section">
             <div className="results-header">
-              <h2>🎉 Результаты детекции</h2>
+              <h2>Результаты детекции</h2>
               <p>Найдено объектов: <strong>{detectionResult?.length || 0}</strong></p>
             </div>
 
@@ -275,18 +246,17 @@ function App() {
               <div className="image-container">
                 <h3>Обработанное изображение</h3>
                 <div className="image-wrapper">
-                  <img 
+                  <img
                     ref={imageRef}
-                    src={resultImage} 
-                    alt="Результат детекции" 
+                    src={resultImage}
+                    alt="Результат детекции"
                     className="result-image"
-                    onError={(e) => {
-                      console.error('❌ Ошибка загрузки изображения:', resultImage);
-                      e.target.style.border = '2px solid red';
-                      e.target.alt = 'Ошибка загрузки изображения';
+                    onError={(event) => {
+                      event.target.style.border = '2px solid #d93025';
+                      event.target.alt = 'Ошибка загрузки изображения';
                     }}
                   />
-                  <canvas 
+                  <canvas
                     ref={canvasRef}
                     className="bounding-boxes-canvas"
                   />
@@ -298,7 +268,7 @@ function App() {
                   <h3>Найденные объекты</h3>
                   <div className="detections-list">
                     {detectionResult.map((detection, index) => (
-                      <div 
+                      <div
                         key={index}
                         className={`detection-item ${selectedDetection === index ? 'selected' : ''}`}
                         onClick={() => handleDetectionClick(index)}
@@ -306,10 +276,10 @@ function App() {
                         <div className="detection-header">
                           <span className="detection-number">#{index + 1}</span>
                           <span className="detection-class">{detection.class}</span>
-                          <span 
+                          <span
                             className="confidence-badge"
-                            style={{ 
-                              backgroundColor: getColorByConfidence(detection.confidence) 
+                            style={{
+                              backgroundColor: getColorByConfidence(detection.confidence),
                             }}
                           >
                             {(detection.confidence * 100).toFixed(1)}%
@@ -317,7 +287,7 @@ function App() {
                         </div>
                         <div className="detection-details">
                           <div>Координаты: ({detection.x.toFixed(0)}, {detection.y.toFixed(0)})</div>
-                          <div>Размер: {detection.w.toFixed(0)}×{detection.h.toFixed(0)}px</div>
+                          <div>Размер: {detection.w.toFixed(0)}x{detection.h.toFixed(0)} px</div>
                         </div>
                       </div>
                     ))}
@@ -328,20 +298,9 @@ function App() {
 
             <div className="actions">
               <button onClick={handleReset} className="action-btn primary">
-                📸 Анализировать другое изображение
+                Анализировать другое изображение
               </button>
             </div>
-          </div>
-        )}
-
-        {/* Отладочная информация */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="debug-info">
-            <strong>Отладка:</strong> 
-            {taskId && ` ID: ${taskId}`} 
-            {currentStatus && ` | Статус: ${currentStatus}`}
-            {resultImage && ` | Изображение: ✓`}
-            {detectionResult && ` | Объекты: ${detectionResult.length}`}
           </div>
         )}
       </div>
