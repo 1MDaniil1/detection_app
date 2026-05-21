@@ -31,6 +31,11 @@ docker compose up --build
 - `SCORE_THRESHOLD` - минимальная уверенность детекции.
 - `MAX_DETECTIONS` - максимальное количество возвращаемых объектов.
 
-## Как должно выглядеть при успешном запуске
+## Как должно выглядеть пр
 
-![alt text](image-1.png)
+![alt text](3.jpg)
+
+![alt text](1.jpg)
+
+![alt text](2.jpg)
+
